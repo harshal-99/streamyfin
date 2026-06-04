@@ -146,7 +146,6 @@ export const JellyseerrSettings = () => {
                 onChangeText={setjellyseerrServerUrl}
                 onResolved={(url) => setResolvedUrl(url)}
                 probe={jellyseerrProbe}
-                minVersion='2.0.0'
                 label={t("home.settings.plugins.jellyseerr.server_url")}
                 hint={t("home.settings.plugins.jellyseerr.server_url_hint")}
                 placeholder={t(
