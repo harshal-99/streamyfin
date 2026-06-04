@@ -11,11 +11,14 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { toast } from "sonner-native";
+import { ServerUrlStatusText } from "@/components/common/ServerUrlStatusText";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
 import { useNetworkAwareQueryClient } from "@/hooks/useNetworkAwareQueryClient";
+import { useServerUrlResolver } from "@/hooks/useServerUrlResolver";
 import { useSettings } from "@/utils/atoms/settings";
+import { reachabilityProbe } from "@/utils/serverUrl/probes/reachability";
 
 export default function StreamystatsPage() {
   const { t } = useTranslation();
@@ -32,6 +35,7 @@ export default function StreamystatsPage() {
 
   // Local state for all editable fields
   const [url, setUrl] = useState<string>(settings?.streamyStatsServerUrl || "");
+  const urlResolver = useServerUrlResolver(reachabilityProbe);
   const [useForSearch, setUseForSearch] = useState<boolean>(
     settings?.searchEngine === "Streamystats",
   );
@@ -152,9 +156,20 @@ export default function StreamystatsPage() {
               autoCapitalize='none'
               textContentType='URL'
               onChangeText={setUrl}
+              onBlur={() => {
+                const candidate = url.trim();
+                if (candidate) {
+                  urlResolver.resolve(candidate).then((r) => {
+                    if (r.ok) setUrl(r.url);
+                  });
+                }
+              }}
             />
           </ListItem>
         </ListGroup>
+        <View className='px-4 mt-1'>
+          <ServerUrlStatusText state={urlResolver} />
+        </View>
 
         <Text className='px-4 text-xs text-neutral-500 mt-1'>
           {t("home.settings.plugins.streamystats.streamystats_search_hint")}{" "}
