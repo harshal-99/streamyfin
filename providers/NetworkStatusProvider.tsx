@@ -1,3 +1,4 @@
+import type { Api } from "@jellyfin/sdk";
 import NetInfo from "@react-native-community/netinfo";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAtom } from "jotai";
@@ -27,23 +28,27 @@ const NetworkStatusContext = createContext<NetworkStatusContextType | null>(
  * Verifies if the Jellyfin server API is reachable by performing a HEAD request.
  * Discards requests that exceed a 5-second timeout limit.
  *
+ * @param api - The Jellyfin API client instance.
  * @param basePath - The base URL of the Jellyfin server.
  * @returns A promise resolving to true if reachable, false otherwise.
  */
-async function checkApiReachable(basePath?: string): Promise<boolean> {
-  if (!basePath) return false;
+async function checkApiReachable(api: Api, basePath: string): Promise<boolean> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 5000);
   try {
     const url = basePath.endsWith("/") ? basePath : `${basePath}/`;
-    const response = await fetch(url, {
-      method: "HEAD",
+    const response = await api.axiosInstance.head(url, {
       signal: controller.signal,
+      timeout: 5000,
     });
     clearTimeout(timeoutId);
-    return response.ok;
-  } catch {
+    return response.status >= 200 && response.status < 300;
+  } catch (error: any) {
     clearTimeout(timeoutId);
+    // If the server responded with any status code, it is reachable
+    if (error?.response) {
+      return true;
+    }
     return false;
   }
 }
@@ -72,7 +77,7 @@ export function NetworkStatusProvider({ children }: { children: ReactNode }) {
     const validationVersion = ++validationVersionRef.current;
     if (!api?.basePath) return false;
     const checkPath = api.basePath;
-    const reachable = await checkApiReachable(checkPath);
+    const reachable = await checkApiReachable(api, checkPath);
     if (
       validationVersion === validationVersionRef.current &&
       apiRef.current?.basePath === checkPath
@@ -80,7 +85,7 @@ export function NetworkStatusProvider({ children }: { children: ReactNode }) {
       setServerConnected(reachable);
     }
     return reachable;
-  }, [api?.basePath]);
+  }, [api, api?.basePath]);
 
   const retryCheck = useCallback(async () => {
     setLoading(true);
