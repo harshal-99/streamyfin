@@ -11,7 +11,9 @@ import {
   useRef,
   useState,
 } from "react";
-import { apiAtom } from "@/providers/JellyfinProvider";
+import { apiAtom, useJellyfin } from "@/providers/JellyfinProvider";
+import { storage } from "@/utils/mmkv";
+import { getServerLocalConfig } from "@/utils/secureCredentials";
 
 interface NetworkStatusContextType {
   isConnected: boolean;
@@ -35,9 +37,11 @@ const NetworkStatusContext = createContext<NetworkStatusContextType | null>(
 async function checkApiReachable(api: Api, basePath: string): Promise<boolean> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 5000);
+  const cleanPath = basePath.endsWith("/") ? basePath.slice(0, -1) : basePath;
+  const url = `${cleanPath}/System/Info/Public`;
+
   try {
-    const url = basePath.endsWith("/") ? basePath : `${basePath}/`;
-    const response = await api.axiosInstance.head(url, {
+    const response = await api.axiosInstance.get(url, {
       signal: controller.signal,
       timeout: 5000,
     });
@@ -45,11 +49,27 @@ async function checkApiReachable(api: Api, basePath: string): Promise<boolean> {
     return response.status >= 200 && response.status < 300;
   } catch (error: any) {
     clearTimeout(timeoutId);
+
     // If the server responded with any status code, it is reachable
     if (error?.response) {
       return true;
     }
-    return false;
+
+    // Fallback to fetch in case Axios/XHR had issues with local certificates/network layers
+    try {
+      const fetchController = new AbortController();
+      const fetchTimeoutId = setTimeout(() => fetchController.abort(), 5000);
+      const response = await fetch(url, {
+        method: "GET",
+        signal: fetchController.signal,
+      });
+      clearTimeout(fetchTimeoutId);
+
+      // Any response (even if non-2xx status code like 401/403) means the server is reachable
+      return response.ok || response.status === 401 || response.status === 403;
+    } catch {
+      return false;
+    }
   }
 }
 
@@ -62,6 +82,7 @@ export function NetworkStatusProvider({ children }: { children: ReactNode }) {
   const [serverConnected, setServerConnected] = useState<boolean | null>(true);
   const [loading, setLoading] = useState(false);
   const [api] = useAtom(apiAtom);
+  const { switchServerUrl } = useJellyfin();
   const queryClient = useQueryClient();
   const wasServerConnected = useRef<boolean | null>(null);
 
@@ -77,15 +98,50 @@ export function NetworkStatusProvider({ children }: { children: ReactNode }) {
     const validationVersion = ++validationVersionRef.current;
     if (!api?.basePath) return false;
     const checkPath = api.basePath;
-    const reachable = await checkApiReachable(api, checkPath);
+    let reachable = await checkApiReachable(api, checkPath);
+
+    // Fallback: If unreachable, check if we have a local URL configured and try that as well
+    if (!reachable) {
+      const remoteUrl = storage.getString("serverUrl");
+      if (remoteUrl) {
+        const config = getServerLocalConfig(remoteUrl);
+        if (config?.enabled && config.localUrl) {
+          // Normalize URLs by stripping trailing slashes
+          const normalizedLocal = config.localUrl.endsWith("/")
+            ? config.localUrl.slice(0, -1)
+            : config.localUrl;
+          const normalizedCurrent = checkPath.endsWith("/")
+            ? checkPath.slice(0, -1)
+            : checkPath;
+          const normalizedRemote = remoteUrl.endsWith("/")
+            ? remoteUrl.slice(0, -1)
+            : remoteUrl;
+
+          // If current is remote, try local. If current is local, try remote (in case we moved away from home)
+          const fallbackUrl =
+            normalizedCurrent === normalizedRemote
+              ? normalizedLocal
+              : normalizedRemote;
+
+          if (normalizedCurrent !== fallbackUrl) {
+            const fallbackReachable = await checkApiReachable(api, fallbackUrl);
+            if (fallbackReachable) {
+              switchServerUrl(fallbackUrl);
+              reachable = true;
+            }
+          }
+        }
+      }
+    }
+
     if (
       validationVersion === validationVersionRef.current &&
-      apiRef.current?.basePath === checkPath
+      apiRef.current?.basePath === api.basePath
     ) {
       setServerConnected(reachable);
     }
     return reachable;
-  }, [api, api?.basePath]);
+  }, [api, api?.basePath, switchServerUrl]);
 
   const retryCheck = useCallback(async () => {
     setLoading(true);
@@ -93,11 +149,24 @@ export function NetworkStatusProvider({ children }: { children: ReactNode }) {
     setLoading(false);
   }, [validateConnection]);
 
+  const validateConnectionRef = useRef(validateConnection);
+
+  useEffect(() => {
+    validateConnectionRef.current = validateConnection;
+  }, [validateConnection]);
+
+  // Run validation check when api changes
+  useEffect(() => {
+    if (api?.basePath) {
+      validateConnection();
+    }
+  }, [api, validateConnection]);
+
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener(async (state) => {
       setIsConnected(state.isConnected ?? false);
       if (state.isConnected) {
-        await validateConnection();
+        await validateConnectionRef.current();
       } else {
         validationVersionRef.current += 1;
         setServerConnected(false);
@@ -107,7 +176,7 @@ export function NetworkStatusProvider({ children }: { children: ReactNode }) {
     // Initial check
     NetInfo.fetch().then((state) => {
       if (state.isConnected) {
-        validateConnection();
+        validateConnectionRef.current();
       } else {
         validationVersionRef.current += 1;
         setServerConnected(false);
@@ -115,7 +184,7 @@ export function NetworkStatusProvider({ children }: { children: ReactNode }) {
     });
 
     return () => unsubscribe();
-  }, [validateConnection]);
+  }, []);
 
   // Refetch active queries when server becomes reachable
   useEffect(() => {
