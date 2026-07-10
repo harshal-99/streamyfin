@@ -25,11 +25,18 @@ const NetworkStatusContext = createContext<NetworkStatusContextType | null>(
 
 async function checkApiReachable(basePath?: string): Promise<boolean> {
   if (!basePath) return false;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 5000);
   try {
     const url = basePath.endsWith("/") ? basePath : `${basePath}/`;
-    const response = await fetch(url, { method: "HEAD" });
+    const response = await fetch(url, {
+      method: "HEAD",
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
     return response.ok;
   } catch {
+    clearTimeout(timeoutId);
     return false;
   }
 }
@@ -42,10 +49,18 @@ export function NetworkStatusProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const wasServerConnected = useRef<boolean | null>(null);
 
+  const apiRef = useRef(api);
+  useEffect(() => {
+    apiRef.current = api;
+  }, [api]);
+
   const validateConnection = useCallback(async () => {
     if (!api?.basePath) return false;
-    const reachable = await checkApiReachable(api.basePath);
-    setServerConnected(reachable);
+    const checkPath = api.basePath;
+    const reachable = await checkApiReachable(checkPath);
+    if (apiRef.current?.basePath === checkPath) {
+      setServerConnected(reachable);
+    }
     return reachable;
   }, [api?.basePath]);
 
@@ -57,7 +72,7 @@ export function NetworkStatusProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener(async (state) => {
-      setIsConnected(!!state.isConnected);
+      setIsConnected(state.isConnected ?? false);
       if (state.isConnected) {
         await validateConnection();
       } else {
