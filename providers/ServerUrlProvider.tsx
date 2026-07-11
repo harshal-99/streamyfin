@@ -36,6 +36,15 @@ export function ServerUrlProvider({ children }: Props): React.ReactElement {
       normalizeUrl(api.basePath) === normalizeUrl(localUrl),
   );
 
+  console.log("[ServerUrlProvider] Debug Info:", {
+    apiBasePath: api?.basePath,
+    localUrl: localUrl,
+    remoteUrl: remoteUrl,
+    normalizedApiBasePath: api?.basePath ? normalizeUrl(api.basePath) : null,
+    normalizedLocalUrl: localUrl ? normalizeUrl(localUrl) : null,
+    isUsingLocalUrl,
+  });
+
   return (
     <ServerUrlContext.Provider
       value={{

@@ -52,12 +52,14 @@ export function LocalNetworkSettings(): React.ReactElement | null {
 
   const remoteUrl = storage.getString("serverUrl");
   const [config, setConfig] = useState<LocalNetworkConfig>(DEFAULT_CONFIG);
+  const [localUrlInput, setLocalUrlInput] = useState<string>("");
 
   useEffect(() => {
     if (remoteUrl) {
       const existingConfig = getServerLocalConfig(remoteUrl);
       if (existingConfig) {
         setConfig(existingConfig);
+        setLocalUrlInput(existingConfig.localUrl);
       }
     }
   }, [remoteUrl]);
@@ -80,12 +82,11 @@ export function LocalNetworkSettings(): React.ReactElement | null {
     [config, saveConfig],
   );
 
-  const handleLocalUrlChange = useCallback(
-    (localUrl: string) => {
-      saveConfig({ ...config, localUrl });
-    },
-    [config, saveConfig],
-  );
+  const handleSaveText = useCallback(() => {
+    if (localUrlInput !== config.localUrl) {
+      saveConfig({ ...config, localUrl: localUrlInput });
+    }
+  }, [config, localUrlInput, saveConfig]);
 
   if (!remoteUrl) return null;
 
@@ -113,8 +114,10 @@ export function LocalNetworkSettings(): React.ReactElement | null {
             <View className=''>
               <Input
                 placeholder={t("home.settings.network.local_url_placeholder")}
-                value={config.localUrl}
-                onChangeText={handleLocalUrlChange}
+                value={localUrlInput}
+                onChangeText={setLocalUrlInput}
+                onBlur={handleSaveText}
+                onEndEditing={handleSaveText}
                 keyboardType='url'
                 autoCapitalize='none'
                 autoCorrect={false}

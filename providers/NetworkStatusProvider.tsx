@@ -135,8 +135,23 @@ export function NetworkStatusProvider({ children }: { children: ReactNode }) {
       reachable = true;
     }
 
+    console.log("[NetworkStatusProvider] validateConnection:", {
+      normalizedLocal,
+      normalizedRemote,
+      localReachable,
+      remoteReachable,
+      chosenReachableUrl: reachableUrl,
+      currentApiBasePath: api.basePath,
+    });
+
     if (reachableUrl) {
       if (normalizedCurrent !== reachableUrl) {
+        console.log(
+          "[NetworkStatusProvider] Switching server URL from",
+          api.basePath,
+          "to",
+          reachableUrl,
+        );
         switchServerUrl(reachableUrl);
       }
     }
