@@ -163,7 +163,12 @@ export function NetworkStatusProvider({ children }: { children: ReactNode }) {
   }, [api, validateConnection]);
 
   useEffect(() => {
+    let isActive = true;
+    let receivedSubscriptionState = false;
+
     const unsubscribe = NetInfo.addEventListener(async (state) => {
+      if (!isActive) return;
+      receivedSubscriptionState = true;
       setIsConnected(state.isConnected ?? false);
       if (state.isConnected) {
         await validateConnectionRef.current();
@@ -175,6 +180,7 @@ export function NetworkStatusProvider({ children }: { children: ReactNode }) {
 
     // Initial check
     NetInfo.fetch().then((state) => {
+      if (!isActive || receivedSubscriptionState) return;
       if (state.isConnected) {
         validateConnectionRef.current();
       } else {
@@ -183,7 +189,10 @@ export function NetworkStatusProvider({ children }: { children: ReactNode }) {
       }
     });
 
-    return () => unsubscribe();
+    return () => {
+      isActive = false;
+      unsubscribe();
+    };
   }, []);
 
   // Refetch active queries when server becomes reachable
