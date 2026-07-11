@@ -1,8 +1,15 @@
 import { useAtomValue } from "jotai";
 import type React from "react";
-import { createContext, type ReactNode, useContext, useState } from "react";
+import {
+  createContext,
+  type ReactNode,
+  useContext,
+  useEffect,
+  useState,
+} from "react";
 import { apiAtom } from "@/providers/JellyfinProvider";
 import { useNetworkStatus } from "@/providers/NetworkStatusProvider";
+import { writeInfoLog } from "@/utils/log";
 import { storage } from "@/utils/mmkv";
 import { getServerLocalConfig } from "@/utils/secureCredentials";
 
@@ -36,14 +43,14 @@ export function ServerUrlProvider({ children }: Props): React.ReactElement {
       normalizeUrl(api.basePath) === normalizeUrl(localUrl),
   );
 
-  console.log("[ServerUrlProvider] Debug Info:", {
-    apiBasePath: api?.basePath,
-    localUrl: localUrl,
-    remoteUrl: remoteUrl,
-    normalizedApiBasePath: api?.basePath ? normalizeUrl(api.basePath) : null,
-    normalizedLocalUrl: localUrl ? normalizeUrl(localUrl) : null,
-    isUsingLocalUrl,
-  });
+  useEffect(() => {
+    writeInfoLog("[ServerUrlProvider] URL Detection Status", {
+      apiBasePath: api?.basePath,
+      localUrl: localUrl,
+      remoteUrl: remoteUrl,
+      isUsingLocalUrl,
+    });
+  }, [api?.basePath, localUrl, remoteUrl, isUsingLocalUrl]);
 
   return (
     <ServerUrlContext.Provider

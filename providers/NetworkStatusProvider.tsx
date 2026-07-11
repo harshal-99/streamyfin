@@ -12,6 +12,7 @@ import {
   useState,
 } from "react";
 import { apiAtom, useJellyfin } from "@/providers/JellyfinProvider";
+import { writeInfoLog } from "@/utils/log";
 import { storage } from "@/utils/mmkv";
 import { getServerLocalConfig } from "@/utils/secureCredentials";
 
@@ -135,7 +136,7 @@ export function NetworkStatusProvider({ children }: { children: ReactNode }) {
       reachable = true;
     }
 
-    console.log("[NetworkStatusProvider] validateConnection:", {
+    writeInfoLog("[NetworkStatusProvider] validateConnection", {
       normalizedLocal,
       normalizedRemote,
       localReachable,
@@ -146,11 +147,8 @@ export function NetworkStatusProvider({ children }: { children: ReactNode }) {
 
     if (reachableUrl) {
       if (normalizedCurrent !== reachableUrl) {
-        console.log(
-          "[NetworkStatusProvider] Switching server URL from",
-          api.basePath,
-          "to",
-          reachableUrl,
+        writeInfoLog(
+          `[NetworkStatusProvider] Switching server URL from ${api.basePath} to ${reachableUrl}`,
         );
         switchServerUrl(reachableUrl);
       }
