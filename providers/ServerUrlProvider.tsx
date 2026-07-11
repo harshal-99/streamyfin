@@ -1,6 +1,6 @@
 import { useAtomValue } from "jotai";
 import type React from "react";
-import { createContext, type ReactNode, useContext } from "react";
+import { createContext, type ReactNode, useContext, useState } from "react";
 import { apiAtom } from "@/providers/JellyfinProvider";
 import { useNetworkStatus } from "@/providers/NetworkStatusProvider";
 import { storage } from "@/utils/mmkv";
@@ -22,15 +22,18 @@ interface Props {
 export function ServerUrlProvider({ children }: Props): React.ReactElement {
   const api = useAtomValue(apiAtom);
   const { retryCheck } = useNetworkStatus();
+  const [_tick, setTick] = useState(0);
 
   const remoteUrl = storage.getString("serverUrl") || null;
   const config = remoteUrl ? getServerLocalConfig(remoteUrl) : undefined;
   const localUrl = config?.enabled ? config.localUrl : null;
 
+  const normalizeUrl = (url: string) =>
+    url.trim().toLowerCase().replace(/\/$/, "");
   const isUsingLocalUrl = Boolean(
     api?.basePath &&
       localUrl &&
-      api.basePath.replace(/\/$/, "") === localUrl.replace(/\/$/, ""),
+      normalizeUrl(api.basePath) === normalizeUrl(localUrl),
   );
 
   return (
@@ -40,6 +43,7 @@ export function ServerUrlProvider({ children }: Props): React.ReactElement {
         isUsingLocalUrl,
         currentSSID: null,
         refreshUrlState: () => {
+          setTick((t) => t + 1);
           retryCheck();
         },
       }}
