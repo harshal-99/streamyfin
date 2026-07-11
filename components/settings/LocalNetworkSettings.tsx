@@ -1,10 +1,7 @@
-import { Ionicons } from "@expo/vector-icons";
 import type React from "react";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Switch, TouchableOpacity, View } from "react-native";
-import { toast } from "sonner-native";
-import { useWifiSSID } from "@/hooks/useWifiSSID";
+import { Switch, View } from "react-native";
 import { useServerUrl } from "@/providers/ServerUrlProvider";
 import { storage } from "@/utils/mmkv";
 import {
@@ -12,7 +9,6 @@ import {
   type LocalNetworkConfig,
   updateServerLocalConfig,
 } from "@/utils/secureCredentials";
-import { Button } from "../Button";
 import { Input } from "../common/Input";
 import { Text } from "../common/Text";
 import { ListGroup } from "../list/ListGroup";
@@ -25,17 +21,14 @@ const DEFAULT_CONFIG: LocalNetworkConfig = {
 };
 
 interface StatusDisplayProps {
-  currentSSID: string | null;
   isUsingLocalUrl: boolean;
   t: (key: string) => string;
 }
 
 function StatusDisplay({
-  currentSSID,
   isUsingLocalUrl,
   t,
 }: StatusDisplayProps): React.ReactElement {
-  const wifiStatus = currentSSID ?? t("home.settings.network.not_connected");
   const urlType = isUsingLocalUrl
     ? t("home.settings.network.local")
     : t("home.settings.network.remote");
@@ -43,12 +36,6 @@ function StatusDisplay({
 
   return (
     <View className='px-4 py-2 bg-neutral-900 rounded-xl mt-4'>
-      <View className='flex-row justify-between items-center py-1'>
-        <Text className='text-neutral-400'>
-          {t("home.settings.network.current_wifi")}
-        </Text>
-        <Text>{wifiStatus}</Text>
-      </View>
       <View className='flex-row justify-between items-center py-1'>
         <Text className='text-neutral-400'>
           {t("home.settings.network.using_url")}
@@ -61,8 +48,7 @@ function StatusDisplay({
 
 export function LocalNetworkSettings(): React.ReactElement | null {
   const { t } = useTranslation();
-  const { permissionStatus, requestPermission } = useWifiSSID();
-  const { isUsingLocalUrl, currentSSID, refreshUrlState } = useServerUrl();
+  const { isUsingLocalUrl, refreshUrlState } = useServerUrl();
 
   const remoteUrl = storage.getString("serverUrl");
   const [config, setConfig] = useState<LocalNetworkConfig>(DEFAULT_CONFIG);
@@ -88,17 +74,10 @@ export function LocalNetworkSettings(): React.ReactElement | null {
   );
 
   const handleToggleEnabled = useCallback(
-    async (enabled: boolean) => {
-      if (enabled && permissionStatus !== "granted") {
-        const granted = await requestPermission();
-        if (!granted) {
-          toast.error(t("home.settings.network.permission_denied"));
-          return;
-        }
-      }
+    (enabled: boolean) => {
       saveConfig({ ...config, enabled });
     },
-    [config, permissionStatus, requestPermission, saveConfig, t],
+    [config, saveConfig],
   );
 
   const handleLocalUrlChange = useCallback(
@@ -108,37 +87,7 @@ export function LocalNetworkSettings(): React.ReactElement | null {
     [config, saveConfig],
   );
 
-  const handleAddCurrentNetwork = useCallback(() => {
-    if (!currentSSID) {
-      toast.error(t("home.settings.network.no_wifi_connected"));
-      return;
-    }
-    if (config.homeWifiSSIDs.includes(currentSSID)) {
-      toast.info(t("home.settings.network.network_already_added"));
-      return;
-    }
-    saveConfig({
-      ...config,
-      homeWifiSSIDs: [...config.homeWifiSSIDs, currentSSID],
-    });
-    toast.success(t("home.settings.network.network_added"));
-  }, [config, currentSSID, saveConfig, t]);
-
-  const handleRemoveNetwork = useCallback(
-    (ssidToRemove: string) => {
-      saveConfig({
-        ...config,
-        homeWifiSSIDs: config.homeWifiSSIDs.filter((s) => s !== ssidToRemove),
-      });
-    },
-    [config, saveConfig],
-  );
-
   if (!remoteUrl) return null;
-
-  const addNetworkButtonText = currentSSID
-    ? t("home.settings.network.add_current_network", { ssid: currentSSID })
-    : t("home.settings.network.not_connected_to_wifi");
 
   return (
     <View>
@@ -173,50 +122,7 @@ export function LocalNetworkSettings(): React.ReactElement | null {
             </View>
           </ListGroup>
 
-          <ListGroup
-            title={t("home.settings.network.home_wifi_networks")}
-            className='mt-4'
-          >
-            {config.homeWifiSSIDs.map((wifiSSID) => (
-              <ListItem key={wifiSSID} title={wifiSSID}>
-                <TouchableOpacity
-                  onPress={() => handleRemoveNetwork(wifiSSID)}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                >
-                  <Ionicons name='close-circle' size={22} color='#EF4444' />
-                </TouchableOpacity>
-              </ListItem>
-            ))}
-            {config.homeWifiSSIDs.length === 0 && (
-              <ListItem
-                title={t("home.settings.network.no_networks_configured")}
-                subtitle={t("home.settings.network.add_network_hint")}
-              />
-            )}
-          </ListGroup>
-
-          <View className='py-2'>
-            <Button
-              onPress={handleAddCurrentNetwork}
-              disabled={!currentSSID || permissionStatus !== "granted"}
-            >
-              {addNetworkButtonText}
-            </Button>
-          </View>
-
-          <StatusDisplay
-            currentSSID={currentSSID}
-            isUsingLocalUrl={isUsingLocalUrl}
-            t={t}
-          />
-        </View>
-      )}
-
-      {permissionStatus === "denied" && (
-        <View className='py-2'>
-          <Text className='text-xs text-red-500'>
-            {t("home.settings.network.permission_denied_explanation")}
-          </Text>
+          <StatusDisplay isUsingLocalUrl={isUsingLocalUrl} t={t} />
         </View>
       )}
     </View>

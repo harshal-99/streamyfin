@@ -24,6 +24,7 @@ import {
   type SavedServer,
   type SavedServerAccount,
   saveAccountCredential,
+  updateServerLocalConfig,
 } from "@/utils/secureCredentials";
 import { TVAddServerForm } from "./TVAddServerForm";
 import { TVAddUserForm } from "./TVAddUserForm";
@@ -54,6 +55,7 @@ export const TVLogin: React.FC = () => {
     stopQuickConnectPolling,
     loginWithSavedCredential,
     loginWithPassword,
+    switchServerUrl,
   } = useJellyfin();
 
   const {
@@ -176,28 +178,31 @@ export const TVLogin: React.FC = () => {
 
   // Server URL checking
   const checkUrl = useCallback(async (url: string) => {
-    setLoadingServerCheck(true);
     const baseUrl = url.replace(/^https?:\/\//i, "");
     const protocols = ["https", "http"];
     try {
-      return checkHttp(baseUrl, protocols);
+      return await checkHttp(baseUrl, protocols);
     } catch (e) {
       if (e instanceof Error && e.message === "Server too old") {
         throw e;
       }
       return undefined;
-    } finally {
-      setLoadingServerCheck(false);
     }
   }, []);
 
   async function checkHttp(baseUrl: string, protocols: string[]) {
     for (const protocol of protocols) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
       try {
         const response = await fetch(
           `${protocol}://${baseUrl}/System/Info/Public`,
-          { mode: "cors" },
+          {
+            mode: "cors",
+            signal: controller.signal,
+          },
         );
+        clearTimeout(timeoutId);
         if (response.ok) {
           const data = (await response.json()) as PublicSystemInfo;
           const serverVersion = data.Version?.split(".");
@@ -214,6 +219,7 @@ export const TVLogin: React.FC = () => {
           return `${protocol}://${baseUrl}`;
         }
       } catch (e) {
+        clearTimeout(timeoutId);
         if (e instanceof Error && e.message === "Server too old") {
           throw e;
         }
@@ -224,36 +230,102 @@ export const TVLogin: React.FC = () => {
 
   // Handle connecting to a new server
   const handleConnect = useCallback(
-    async (url: string) => {
-      url = url.trim().replace(/\/$/, "");
+    async (remoteUrl: string, localUrl: string) => {
+      const trimmedRemote = remoteUrl.trim().replace(/\/$/, "");
+      const trimmedLocal = localUrl.trim().replace(/\/$/, "");
+
+      if (!trimmedRemote && !trimmedLocal) {
+        Alert.alert(
+          t("login.connection_failed"),
+          t("server.please_enter_at_least_one_url"),
+        );
+        return;
+      }
+
+      setLoadingServerCheck(true);
       try {
-        const result = await checkUrl(url);
-        if (result === undefined) {
+        const [resLocal, resRemote] = await Promise.all([
+          trimmedLocal ? checkUrl(trimmedLocal) : Promise.resolve(undefined),
+          trimmedRemote ? checkUrl(trimmedRemote) : Promise.resolve(undefined),
+        ]);
+        const resolvedLocal = resLocal;
+        const resolvedRemote = resRemote;
+
+        if (
+          trimmedLocal &&
+          !resolvedLocal &&
+          trimmedRemote &&
+          !resolvedRemote
+        ) {
           Alert.alert(
             t("login.connection_failed"),
             t("login.could_not_connect_to_server"),
           );
           return;
         }
-        await setServer({ address: result });
+        if (trimmedLocal && !resolvedLocal && !trimmedRemote) {
+          Alert.alert(
+            t("login.connection_failed"),
+            t("login.could_not_connect_to_server"),
+          );
+          return;
+        }
+        if (trimmedRemote && !resolvedRemote && !trimmedLocal) {
+          Alert.alert(
+            t("login.connection_failed"),
+            t("login.could_not_connect_to_server"),
+          );
+          return;
+        }
+
+        const primaryAddress = resolvedRemote || resolvedLocal!;
+        await setServer({ address: primaryAddress });
+
+        if (trimmedLocal) {
+          updateServerLocalConfig(primaryAddress, {
+            localUrl: trimmedLocal,
+            enabled: true,
+            homeWifiSSIDs: [],
+          });
+        }
+
+        if (
+          resolvedLocal &&
+          resolvedRemote &&
+          resolvedRemote !== resolvedLocal
+        ) {
+          switchServerUrl(resolvedLocal);
+        }
 
         // Update server list and get the new server data
         refreshServers();
 
         // Find or create server entry
         const servers = getPreviousServers();
-        const server = servers.find((s) => s.address === result);
+        const server = servers.find((s) => s.address === primaryAddress);
 
         if (server) {
           setCurrentServer(server);
-          setSelectedTVServer({ address: result, name: serverName });
+          setSelectedTVServer({
+            address: primaryAddress,
+            name: server.name || serverName,
+          });
           setCurrentScreen("user-selection");
         }
       } catch (error) {
         if (__DEV__) console.error("[TVLogin] Error in handleConnect:", error);
+      } finally {
+        setLoadingServerCheck(false);
       }
     },
-    [checkUrl, setServer, serverName, setSelectedTVServer],
+    [
+      checkUrl,
+      setServer,
+      serverName,
+      setSelectedTVServer,
+      refreshServers,
+      switchServerUrl,
+    ],
   );
 
   // Handle selecting an existing server

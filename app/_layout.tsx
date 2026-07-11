@@ -421,8 +421,8 @@ function Layout() {
     >
       <JellyfinProvider>
         <InactivityProvider>
-          <ServerUrlProvider>
-            <NetworkStatusProvider>
+          <NetworkStatusProvider>
+            <ServerUrlProvider>
               <PlaySettingsProvider>
                 <LogProvider>
                   <WebSocketProvider>
@@ -556,8 +556,8 @@ function Layout() {
                   </WebSocketProvider>
                 </LogProvider>
               </PlaySettingsProvider>
-            </NetworkStatusProvider>
-          </ServerUrlProvider>
+            </ServerUrlProvider>
+          </NetworkStatusProvider>
         </InactivityProvider>
       </JellyfinProvider>
     </PersistQueryClientProvider>

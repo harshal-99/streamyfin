@@ -97,40 +97,47 @@ export function NetworkStatusProvider({ children }: { children: ReactNode }) {
   const validateConnection = useCallback(async () => {
     const validationVersion = ++validationVersionRef.current;
     if (!api?.basePath) return false;
-    const checkPath = api.basePath;
-    let reachable = await checkApiReachable(api, checkPath);
 
-    // Fallback: If unreachable, check if we have a local URL configured and try that as well
-    if (!reachable) {
-      const remoteUrl = storage.getString("serverUrl");
-      if (remoteUrl) {
-        const config = getServerLocalConfig(remoteUrl);
-        if (config?.enabled && config.localUrl) {
-          // Normalize URLs by stripping trailing slashes
-          const normalizedLocal = config.localUrl.endsWith("/")
-            ? config.localUrl.slice(0, -1)
-            : config.localUrl;
-          const normalizedCurrent = checkPath.endsWith("/")
-            ? checkPath.slice(0, -1)
-            : checkPath;
-          const normalizedRemote = remoteUrl.endsWith("/")
-            ? remoteUrl.slice(0, -1)
-            : remoteUrl;
+    const remoteUrl = storage.getString("serverUrl");
+    if (!remoteUrl) return false;
 
-          // If current is remote, try local. If current is local, try remote (in case we moved away from home)
-          const fallbackUrl =
-            normalizedCurrent === normalizedRemote
-              ? normalizedLocal
-              : normalizedRemote;
+    const config = getServerLocalConfig(remoteUrl);
+    const localUrl =
+      config?.enabled && config.localUrl ? config.localUrl : null;
 
-          if (normalizedCurrent !== fallbackUrl) {
-            const fallbackReachable = await checkApiReachable(api, fallbackUrl);
-            if (fallbackReachable) {
-              switchServerUrl(fallbackUrl);
-              reachable = true;
-            }
-          }
-        }
+    const normalizeUrl = (url: string) => url.trim().replace(/\/$/, "");
+    const normalizedCurrent = normalizeUrl(api.basePath);
+    const normalizedRemote = normalizeUrl(remoteUrl);
+    const normalizedLocal = localUrl ? normalizeUrl(localUrl) : null;
+
+    let reachableUrl: string | null = null;
+    let reachable = false;
+
+    let localReachable = false;
+    let remoteReachable = false;
+
+    if (normalizedLocal) {
+      const [localRes, remoteRes] = await Promise.all([
+        checkApiReachable(api, normalizedLocal),
+        checkApiReachable(api, normalizedRemote),
+      ]);
+      localReachable = localRes;
+      remoteReachable = remoteRes;
+    } else {
+      remoteReachable = await checkApiReachable(api, normalizedRemote);
+    }
+
+    if (localReachable) {
+      reachableUrl = normalizedLocal;
+      reachable = true;
+    } else if (remoteReachable) {
+      reachableUrl = normalizedRemote;
+      reachable = true;
+    }
+
+    if (reachableUrl) {
+      if (normalizedCurrent !== reachableUrl) {
+        switchServerUrl(reachableUrl);
       }
     }
 
@@ -141,7 +148,7 @@ export function NetworkStatusProvider({ children }: { children: ReactNode }) {
       setServerConnected(reachable);
     }
     return reachable;
-  }, [api, api?.basePath, switchServerUrl]);
+  }, [api, switchServerUrl]);
 
   const retryCheck = useCallback(async () => {
     setLoading(true);

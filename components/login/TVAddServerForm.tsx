@@ -9,7 +9,7 @@ import { scaleSize } from "@/utils/scaleSize";
 import { TVInput } from "./TVInput";
 
 interface TVAddServerFormProps {
-  onConnect: (url: string) => Promise<void>;
+  onConnect: (remoteUrl: string, localUrl: string) => Promise<void>;
   onStartPairing?: () => void;
   onBack: () => void;
   loading?: boolean;
@@ -24,11 +24,12 @@ export const TVAddServerForm: React.FC<TVAddServerFormProps> = ({
   disabled = false,
 }) => {
   const typography = useScaledTVTypography();
-  const [serverURL, setServerURL] = useState("");
+  const [remoteURL, setRemoteURL] = useState("");
+  const [localURL, setLocalURL] = useState("");
 
   const handleConnect = async () => {
-    if (serverURL.trim()) {
-      await onConnect(serverURL.trim());
+    if (remoteURL.trim() || localURL.trim()) {
+      await onConnect(remoteURL.trim(), localURL.trim());
     }
   };
 
@@ -74,7 +75,27 @@ export const TVAddServerForm: React.FC<TVAddServerFormProps> = ({
           {t("server.enter_url_to_jellyfin_server")}
         </Text>
 
-        {/* Server URL Input */}
+        {/* Remote Server URL Input */}
+        <View
+          style={{
+            marginBottom: scaleSize(16),
+            paddingHorizontal: scaleSize(8),
+          }}
+        >
+          <TVInput
+            placeholder={t("server.remote_server_url_placeholder")}
+            value={remoteURL}
+            onChangeText={setRemoteURL}
+            keyboardType='url'
+            autoCapitalize='none'
+            textContentType='URL'
+            returnKeyType='next'
+            hasTVPreferredFocus
+            disabled={isDisabled}
+          />
+        </View>
+
+        {/* Local Server URL Input */}
         <View
           style={{
             marginBottom: scaleSize(24),
@@ -82,14 +103,13 @@ export const TVAddServerForm: React.FC<TVAddServerFormProps> = ({
           }}
         >
           <TVInput
-            placeholder={t("server.server_url_placeholder")}
-            value={serverURL}
-            onChangeText={setServerURL}
+            placeholder={t("server.local_server_url_placeholder")}
+            value={localURL}
+            onChangeText={setLocalURL}
             keyboardType='url'
             autoCapitalize='none'
             textContentType='URL'
             returnKeyType='done'
-            hasTVPreferredFocus
             disabled={isDisabled}
           />
         </View>
@@ -99,7 +119,7 @@ export const TVAddServerForm: React.FC<TVAddServerFormProps> = ({
           <Button
             onPress={handleConnect}
             loading={loading}
-            disabled={loading || !serverURL.trim()}
+            disabled={loading || (!remoteURL.trim() && !localURL.trim())}
             color='white'
           >
             {t("server.connect_button")}

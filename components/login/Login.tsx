@@ -24,9 +24,11 @@ import { PreviousServersList } from "@/components/PreviousServersList";
 import { SaveAccountModal } from "@/components/SaveAccountModal";
 import { Colors } from "@/constants/Colors";
 import { apiAtom, useJellyfin } from "@/providers/JellyfinProvider";
-import type {
-  AccountSecurityType,
-  SavedServer,
+import {
+  type AccountSecurityType,
+  getServerLocalConfig,
+  type SavedServer,
+  updateServerLocalConfig,
 } from "@/utils/secureCredentials";
 
 const CredentialsSchema = z.object({
@@ -44,6 +46,7 @@ export const Login: React.FC = () => {
     initiateQuickConnect,
     loginWithSavedCredential,
     loginWithPassword,
+    switchServerUrl,
   } = useJellyfin();
 
   const {
@@ -55,6 +58,7 @@ export const Login: React.FC = () => {
   const [loadingServerCheck, setLoadingServerCheck] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
   const [serverURL, setServerURL] = useState<string>(_apiUrl || "");
+  const [localServerURL, setLocalServerURL] = useState<string>("");
   const [serverName, setServerName] = useState<string>("");
   const [credentials, setCredentials] = useState<{
     username: string;
@@ -192,30 +196,31 @@ export const Login: React.FC = () => {
   };
 
   const checkUrl = useCallback(async (url: string) => {
-    setLoadingServerCheck(true);
     const baseUrl = url.replace(/^https?:\/\//i, "");
     const protocols = ["https", "http"];
     try {
-      return checkHttp(baseUrl, protocols);
+      return await checkHttp(baseUrl, protocols);
     } catch (e) {
       if (e instanceof Error && e.message === "Server too old") {
         throw e;
       }
       return undefined;
-    } finally {
-      setLoadingServerCheck(false);
     }
   }, []);
 
   async function checkHttp(baseUrl: string, protocols: string[]) {
     for (const protocol of protocols) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
       try {
         const response = await fetch(
           `${protocol}://${baseUrl}/System/Info/Public`,
           {
             mode: "cors",
+            signal: controller.signal,
           },
         );
+        clearTimeout(timeoutId);
         if (response.ok) {
           const data = (await response.json()) as PublicSystemInfo;
           const serverVersion = data.Version?.split(".");
@@ -232,6 +237,7 @@ export const Login: React.FC = () => {
           return `${protocol}://${baseUrl}`;
         }
       } catch (e) {
+        clearTimeout(timeoutId);
         if (e instanceof Error && e.message === "Server too old") {
           throw e;
         }
@@ -240,20 +246,80 @@ export const Login: React.FC = () => {
     return undefined;
   }
 
-  const handleConnect = useCallback(async (url: string) => {
-    url = url.trim().replace(/\/$/, "");
-    try {
-      const result = await checkUrl(url);
-      if (result === undefined) {
+  const handleConnect = useCallback(
+    async (remoteVal: string, localVal: string) => {
+      const trimmedRemote = remoteVal.trim().replace(/\/$/, "");
+      const trimmedLocal = localVal.trim().replace(/\/$/, "");
+
+      if (!trimmedRemote && !trimmedLocal) {
         Alert.alert(
           t("login.connection_failed"),
-          t("login.could_not_connect_to_server"),
+          t("server.please_enter_at_least_one_url"),
         );
         return;
       }
-      await setServer({ address: result });
-    } catch {}
-  }, []);
+
+      setLoadingServerCheck(true);
+      try {
+        const [resLocal, resRemote] = await Promise.all([
+          trimmedLocal ? checkUrl(trimmedLocal) : Promise.resolve(undefined),
+          trimmedRemote ? checkUrl(trimmedRemote) : Promise.resolve(undefined),
+        ]);
+        const resolvedLocal = resLocal;
+        const resolvedRemote = resRemote;
+
+        if (
+          trimmedLocal &&
+          !resolvedLocal &&
+          trimmedRemote &&
+          !resolvedRemote
+        ) {
+          Alert.alert(
+            t("login.connection_failed"),
+            t("login.could_not_connect_to_server"),
+          );
+          return;
+        }
+        if (trimmedLocal && !resolvedLocal && !trimmedRemote) {
+          Alert.alert(
+            t("login.connection_failed"),
+            t("login.could_not_connect_to_server"),
+          );
+          return;
+        }
+        if (trimmedRemote && !resolvedRemote && !trimmedLocal) {
+          Alert.alert(
+            t("login.connection_failed"),
+            t("login.could_not_connect_to_server"),
+          );
+          return;
+        }
+
+        const primaryAddress = resolvedRemote || resolvedLocal!;
+        await setServer({ address: primaryAddress });
+
+        if (trimmedLocal) {
+          updateServerLocalConfig(primaryAddress, {
+            localUrl: trimmedLocal,
+            enabled: true,
+            homeWifiSSIDs: [],
+          });
+        }
+
+        if (
+          resolvedLocal &&
+          resolvedRemote &&
+          resolvedRemote !== resolvedLocal
+        ) {
+          switchServerUrl(resolvedLocal);
+        }
+      } catch {
+      } finally {
+        setLoadingServerCheck(false);
+      }
+    },
+    [checkUrl, setServer, switchServerUrl],
+  );
 
   const handleQuickConnect = async () => {
     try {
@@ -402,10 +468,21 @@ export const Login: React.FC = () => {
                 {t("server.enter_url_to_jellyfin_server")}
               </Text>
               <Input
-                aria-label='Server URL'
-                placeholder={t("server.server_url_placeholder")}
+                aria-label='Remote Server URL'
+                placeholder={t("server.remote_server_url_placeholder")}
                 onChangeText={setServerURL}
                 value={serverURL}
+                keyboardType='url'
+                returnKeyType='next'
+                autoCapitalize='none'
+                textContentType='URL'
+                maxLength={500}
+              />
+              <Input
+                aria-label='Local Server URL'
+                placeholder={t("server.local_server_url_placeholder")}
+                onChangeText={setLocalServerURL}
+                value={localServerURL}
                 keyboardType='url'
                 returnKeyType='done'
                 autoCapitalize='none'
@@ -416,7 +493,7 @@ export const Login: React.FC = () => {
                 loading={loadingServerCheck}
                 disabled={loadingServerCheck}
                 onPress={async () => {
-                  await handleConnect(serverURL);
+                  await handleConnect(serverURL, localServerURL);
                 }}
                 className='w-full grow'
               >
@@ -428,12 +505,13 @@ export const Login: React.FC = () => {
                   if (server.serverName) {
                     setServerName(server.serverName);
                   }
-                  await handleConnect(server.address);
+                  await handleConnect(server.address, "");
                 }}
               />
               <PreviousServersList
                 onServerSelect={async (s) => {
-                  await handleConnect(s.address);
+                  const config = getServerLocalConfig(s.address);
+                  await handleConnect(s.address, config?.localUrl || "");
                 }}
                 onQuickLogin={handleQuickLoginWithSavedCredential}
                 onPasswordLogin={handlePasswordLogin}
